@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SkyDesk OS - Lightweight In-Browser HTML5 Gateway Server
 import http.server
 import socketserver
 import json
@@ -72,6 +73,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
+        # Read runtime config if available
         password = "Password123!"
         rdp_host = "127.0.0.1:3389"
         

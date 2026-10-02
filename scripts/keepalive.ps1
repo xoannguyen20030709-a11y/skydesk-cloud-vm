@@ -10,6 +10,7 @@ if ($env:SESSION_HOURS -match '^\d+$') {
 }
 
 $totalSeconds = $sessionHours * 3600
+# GitHub Actions runner limit is 360 minutes (6h). Reserve 5 minutes for clean artifact upload
 if ($totalSeconds -gt 21300) { $totalSeconds = 21300 }
 
 $startTime = Get-Date

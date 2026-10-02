@@ -141,7 +141,7 @@ if (![string]::IsNullOrWhiteSpace($pinggyRdpUrl)) {
 } elseif (![string]::IsNullOrWhiteSpace($ngrokRdpUrl)) {
     $primaryRdp = $ngrokRdpUrl
 } else {
-    $primaryRdp = "127.0.0.1:3389 (via cloudflared/tunnel)"
+    $primaryRdp = "127.0.0.1:3389"
 }
 
 # Save runtime info for web gateway
@@ -207,33 +207,37 @@ $tokenPayload | Add-Member -MemberType NoteProperty -Name "vm_token" -Value $sky
 $tokenPayload | ConvertTo-Json -Depth 5 | Out-File -FilePath "./vm-token.json" -Encoding utf8 -Force
 
 # 8. Output to GITHUB_STEP_SUMMARY
+$webDisplay = "Multi-Tunnel Active"
+if (![string]::IsNullOrWhiteSpace($cfWebUrl)) {
+    $webDisplay = $cfWebUrl
+}
+
 $summaryLines = @(
-    "# 🚀 SkyDesk Cloud VM is Active & Online!",
-    "",
-    "> **Windows Server Cloud PC** is now provisioned and ready for remote access.",
-    "",
-    "### 🔑 VM Session Access Token",
-    "Paste this token into the **SkyDesk Web Dashboard** to connect:",
-    "```text",
+    '# 🚀 SkyDesk Cloud VM is Active & Online!',
+    '',
+    '> **Windows Server Cloud PC** is now provisioned and ready for remote access.',
+    '',
+    '### 🔑 VM Session Access Token',
+    'Paste this token into the **SkyDesk Web Dashboard** to connect:',
+    '```text',
     $skydeskToken,
-    "```",
-    "",
-    "---",
-    "",
-    "### 🖥️ Quick Connection Details",
-    "| Parameter | Value |",
-    "| :--- | :--- |",
-    "| **Status** | 🟢 **ACTIVE / READY** |",
-    "| **Direct RDP Endpoint** | ``" + $primaryRdp + "`` |",
-    "| **In-Browser Web Access** | " + (if ($cfWebUrl) { "[$cfWebUrl]($cfWebUrl)" } else { "Multi-Tunnel Active" }) + " |",
-    "| **Username** | ``" + $username + "`` |",
-    "| **Password** | ``" + $password + "`` |",
-    "| **Session Expiration** | " + $expiresAt + " (6 Hours Max) |",
-    ""
+    '```',
+    '',
+    '---',
+    '',
+    '### 🖥️ Quick Connection Details',
+    '| Parameter | Value |',
+    '| :--- | :--- |',
+    '| **Status** | 🟢 **ACTIVE / READY** |',
+    "| **Direct RDP Endpoint** | $primaryRdp |",
+    "| **In-Browser Web Access** | $webDisplay |",
+    "| **Username** | $username |",
+    "| **Password** | $password |",
+    "| **Session Expiration** | $expiresAt (6 Hours Max) |",
+    ''
 )
 
-$summaryText = $summaryLines -join "`r`n"
-$summaryText | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+$summaryLines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
 # 9. Auto-Publish Token to Web Portal (if URL provided)
 if (![string]::IsNullOrWhiteSpace($env:WEB_PORTAL_URL)) {
@@ -244,7 +248,11 @@ if (![string]::IsNullOrWhiteSpace($env:WEB_PORTAL_URL)) {
             session = $tokenPayload
         } | ConvertTo-Json -Depth 5
         
-        $portalUri = $env:WEB_PORTAL_URL.TrimEnd('/') + "/api/token/publish"
+        $portalBase = $env:WEB_PORTAL_URL.Trim()
+        if ($portalBase.EndsWith('/')) {
+            $portalBase = $portalBase.Substring(0, $portalBase.Length - 1)
+        }
+        $portalUri = $portalBase + "/api/token/publish"
         Invoke-RestMethod -Uri $portalUri -Method Post -Body $publishBody -ContentType "application/json" -TimeoutSec 15 -ErrorAction SilentlyContinue | Out-Null
         Write-Host "[✓] Successfully registered session token to web portal!" -ForegroundColor Green
     } catch {}

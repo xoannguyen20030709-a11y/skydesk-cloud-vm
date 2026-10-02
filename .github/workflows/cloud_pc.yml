@@ -1,0 +1,102 @@
+name: "SkyDesk Cloud PC - Windows Server VM"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tunnel_mode:
+        description: 'Tunnel Provider (cloudflare / pinggy / ngrok / multi)'
+        required: true
+        default: 'multi'
+        type: choice
+        options:
+          - 'multi'
+          - 'cloudflare'
+          - 'pinggy'
+          - 'ngrok'
+      ngrok_token:
+        description: 'Ngrok Auth Token (Optional if using Ngrok or Multi)'
+        required: false
+        default: ''
+        type: string
+      admin_password:
+        description: 'Custom VM Password (Leave blank for auto-generated secure password)'
+        required: false
+        default: ''
+        type: string
+      install_dev_tools:
+        description: 'Pre-install Student & Developer Software (VS Code, Chrome, Git, Python, NodeJS)'
+        required: false
+        default: true
+        type: boolean
+      web_portal_url:
+        description: 'Web Portal URL to auto-publish VM Token (e.g. https://your-app.vercel.app)'
+        required: false
+        default: ''
+        type: string
+      session_duration_hours:
+        description: 'Keep-alive session duration in hours (1 - 6)'
+        required: false
+        default: '6'
+        type: string
+
+jobs:
+  launch_vm:
+    name: "Provision & Run Windows Cloud PC"
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Initialize & System Check
+        id: sysinfo
+        shell: powershell
+        run: |
+          Write-Host "==========================================================" -ForegroundColor Cyan
+          Write-Host " [SkyDesk OS] Initializing Windows Cloud VM Runner..." -ForegroundColor Green
+          Write-Host "==========================================================" -ForegroundColor Cyan
+          
+          $os = Get-CimInstance Win32_OperatingSystem
+          $cpu = Get-CimInstance Win32_Processor
+          $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+          $disk = Get-PSDrive C | Select-Object @{Name="FreeGB";Expression={[math]::Round($_.Free/1GB, 2)}}, @{Name="TotalGB";Expression={[math]::Round(($_.Used + $_.Free)/1GB, 2)}}
+          
+          Write-Host "OS: $($os.Caption) (Build $($os.BuildNumber))" -ForegroundColor Yellow
+          Write-Host "CPU: $($cpu.Name) ($($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads)" -ForegroundColor Yellow
+          Write-Host "RAM: $ram GB" -ForegroundColor Yellow
+          Write-Host "Disk (C:): Free $($disk.FreeGB) GB / Total $($disk.TotalGB) GB" -ForegroundColor Yellow
+          
+          $publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org?format=json" -TimeoutSec 10).ip
+          Write-Host "Public Runner IP: $publicIp" -ForegroundColor Cyan
+          
+          "RUNNER_PUBLIC_IP=$publicIp" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Provision RDP, Tunnels & Web Client
+        id: setup
+        shell: powershell
+        env:
+          TUNNEL_MODE: ${{ github.event.inputs.tunnel_mode || 'multi' }}
+          NGROK_TOKEN: ${{ github.event.inputs.ngrok_token || '' }}
+          CUSTOM_PASSWORD: ${{ github.event.inputs.admin_password || '' }}
+          INSTALL_TOOLS: ${{ github.event.inputs.install_dev_tools || 'true' }}
+          WEB_PORTAL_URL: ${{ github.event.inputs.web_portal_url || '' }}
+          SESSION_HOURS: ${{ github.event.inputs.session_duration_hours || '6' }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          ./scripts/setup_vm.ps1
+
+      - name: Upload Session Token Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-session-token
+          path: ./vm-token.json
+          retention-days: 1
+
+      - name: Interactive Keepalive Engine (6 Hours Active Session)
+        shell: powershell
+        env:
+          SESSION_HOURS: ${{ github.event.inputs.session_duration_hours || '6' }}
+        run: |
+          ./scripts/keepalive.ps1

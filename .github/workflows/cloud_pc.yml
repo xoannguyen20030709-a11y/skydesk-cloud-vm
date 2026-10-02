@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tunnel_mode:
-        description: 'Tunnel Provider (cloudflare / pinggy / ngrok / multi)'
+        description: 'Tunnel Provider (multi / cloudflare / pinggy / ngrok)'
         required: true
         default: 'multi'
         type: choice
@@ -14,7 +14,7 @@ on:
           - 'pinggy'
           - 'ngrok'
       ngrok_token:
-        description: 'Ngrok Auth Token (Optional if using Ngrok or Multi)'
+        description: 'Ngrok Auth Token (Optional)'
         required: false
         default: ''
         type: string
@@ -24,12 +24,12 @@ on:
         default: ''
         type: string
       install_dev_tools:
-        description: 'Pre-install Student & Developer Software (VS Code, Chrome, Git, Python, NodeJS)'
+        description: 'Pre-install Student & Developer Software'
         required: false
         default: true
         type: boolean
       web_portal_url:
-        description: 'Web Portal URL to auto-publish VM Token (e.g. https://your-app.vercel.app)'
+        description: 'Web Portal URL to auto-publish VM Token (e.g. https://cloud-lab-manager-azure.vercel.app)'
         required: false
         default: ''
         type: string
@@ -57,17 +57,20 @@ jobs:
           Write-Host " [SkyDesk OS] Initializing Windows Cloud VM Runner..." -ForegroundColor Green
           Write-Host "==========================================================" -ForegroundColor Cyan
           
-          $os = Get-CimInstance Win32_OperatingSystem
-          $cpu = Get-CimInstance Win32_Processor
-          $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-          $disk = Get-PSDrive C | Select-Object @{Name="FreeGB";Expression={[math]::Round($_.Free/1GB, 2)}}, @{Name="TotalGB";Expression={[math]::Round(($_.Used + $_.Free)/1GB, 2)}}
+          $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+          $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
+          $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).TotalPhysicalMemory / 1GB, 2)
+          $disk = Get-PSDrive C -ErrorAction SilentlyContinue | Select-Object @{Name="FreeGB";Expression={[math]::Round($_.Free/1GB, 2)}}, @{Name="TotalGB";Expression={[math]::Round(($_.Used + $_.Free)/1GB, 2)}}
           
-          Write-Host "OS: $($os.Caption) (Build $($os.BuildNumber))" -ForegroundColor Yellow
-          Write-Host "CPU: $($cpu.Name) ($($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads)" -ForegroundColor Yellow
+          Write-Host "OS: $($os.Caption)" -ForegroundColor Yellow
+          Write-Host "CPU: $($cpu.Name) ($($cpu.NumberOfLogicalProcessors) vCPUs)" -ForegroundColor Yellow
           Write-Host "RAM: $ram GB" -ForegroundColor Yellow
           Write-Host "Disk (C:): Free $($disk.FreeGB) GB / Total $($disk.TotalGB) GB" -ForegroundColor Yellow
           
-          $publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org?format=json" -TimeoutSec 10).ip
+          $publicIp = "GitHub Cloud Runner"
+          try {
+            $publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org?format=json" -TimeoutSec 10 -ErrorAction SilentlyContinue).ip
+          } catch {}
           Write-Host "Public Runner IP: $publicIp" -ForegroundColor Cyan
           
           "RUNNER_PUBLIC_IP=$publicIp" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -85,18 +88,22 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          ./scripts/setup_vm.ps1
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          & "$env:GITHUB_WORKSPACE\scripts\setup_vm.ps1"
 
       - name: Upload Session Token Artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: vm-session-token
           path: ./vm-token.json
           retention-days: 1
+          if-no-files-found: ignore
 
       - name: Interactive Keepalive Engine (6 Hours Active Session)
         shell: powershell
         env:
           SESSION_HOURS: ${{ github.event.inputs.session_duration_hours || '6' }}
         run: |
-          ./scripts/keepalive.ps1
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          & "$env:GITHUB_WORKSPACE\scripts\keepalive.ps1"
